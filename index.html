@@ -68,6 +68,13 @@
 
   #carEditToolbar.visible { display: flex; }
 
+  #colorEditToolbar {
+    display: none;
+    align-items: center;
+  }
+
+  #colorEditToolbar.visible { display: flex; }
+
   .car-edit-label {
     color: var(--muted);
     font-size: 12px;
@@ -101,6 +108,19 @@
   }
 
   .highlight-swatch.active {
+    border-color: #ffffff;
+    transform: scale(1.15);
+  }
+
+  .color-swatch {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.2);
+  }
+
+  .color-swatch.active {
     border-color: #ffffff;
     transform: scale(1.15);
   }
@@ -156,7 +176,7 @@
   #drawArrow.active .dot { background: #06231d; }
 
   .tactic-arrow {
-    stroke: #ffffff;
+    stroke: var(--arrow-color, #ffffff);
     stroke-opacity: 0.9;
     stroke-width: 4;
     stroke-linecap: round;
@@ -191,6 +211,37 @@
   }
 
   .delete-x:hover { background: rgba(255,90,90,0.2); color: #ff5a5a; }
+
+  .variant-letters {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .variant-letter {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .variant-letter:hover { background: rgba(77,224,196,0.15); color: var(--text); }
+
+  .variant-letter.active {
+    background: var(--accent);
+    color: #06231d;
+  }
+
+  .variant-add {
+    margin-left: 6px;
+    color: var(--accent);
+    font-weight: 700;
+    padding: 0 3px;
+    border-radius: 4px;
+  }
+
+  .variant-add:hover { background: rgba(77,224,196,0.18); }
 
   .templates-empty {
     color: var(--muted);
@@ -463,6 +514,7 @@
   <button id="addBall"><span class="dot"></span>Add Ball</button>
   <button id="addText"><span class="dot"></span>Add Text</button>
   <button id="drawArrow"><span class="dot"></span>Draw Arrow</button>
+  <button id="flipVertical"><span class="dot"></span>Flip Vertically</button>
   <button id="saveTemplate"><span class="dot"></span>Save as Template</button>
   <button id="newGroup"><span class="dot"></span>New Group</button>
   <button id="exportTemplates"><span class="dot"></span>Export Templates</button>
@@ -486,12 +538,37 @@
   <button id="clearHighlight">Clear Highlight</button>
 </div>
 
+<div class="toolbar" id="colorEditToolbar">
+  <span class="car-edit-label">Color</span>
+  <button class="color-swatch" data-color="#ffd23f" style="background:#ffd23f" title="Yellow"></button>
+  <button class="color-swatch" data-color="#ff5a5a" style="background:#ff5a5a" title="Red"></button>
+  <button class="color-swatch" data-color="#4de0c4" style="background:#4de0c4" title="Teal"></button>
+  <button class="color-swatch" data-color="#b26bff" style="background:#b26bff" title="Purple"></button>
+  <button class="color-swatch" data-color="#ffffff" style="background:#ffffff" title="White"></button>
+  <button id="resetColor">Reset Color</button>
+</div>
+
 <div class="board-row">
 <div class="field-wrapper" id="field">
   <svg class="field-svg" viewBox="-45 -5 1090 810" preserveAspectRatio="xMidYMid meet">
     <defs>
+      <!-- One marker per color-swatch option (plus the default), so a colored
+           arrow's head matches its shaft — SVG markers don't inherit currentColor
+           from the line they're attached to. -->
       <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="white" />
+      </marker>
+      <marker id="arrowhead-ffd23f" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#ffd23f" />
+      </marker>
+      <marker id="arrowhead-ff5a5a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#ff5a5a" />
+      </marker>
+      <marker id="arrowhead-4de0c4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#4de0c4" />
+      </marker>
+      <marker id="arrowhead-b26bff" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#b26bff" />
       </marker>
     </defs>
 
@@ -545,6 +622,12 @@
   let selectedToken = null;
   let selectedArrow = null;
 
+  // Which template's variant cycle is "live" and where in it we are. Not
+  // persisted — clicking any other template resets the cycle back to the
+  // first variant next time you click back onto this one.
+  let activeTemplateId = null;
+  let activeVariantIndex = 0;
+
   function addToken(type, team, opts) {
     opts = opts || {};
     const token = document.createElement('div');
@@ -585,6 +668,7 @@
       token.dataset.fontSize = fontSize;
       body.innerHTML = `<div class="text-label" style="font-size:${fontSize}px">${escapeHtml(text)}</div><div class="rotate-handle" title="Drag to rotate"></div><div class="resize-handle" title="Drag to resize"></div>`;
       setRotation(token, body, opts.rotation != null ? opts.rotation : 0);
+      if (opts.color) setTextColor(token, body, opts.color);
     } else {
       body.innerHTML = `<div class="ball-shape"></div>`;
     }
@@ -626,6 +710,37 @@
       body.classList.remove('highlighted-body');
       body.style.removeProperty('--hl-color');
     }
+  }
+
+  function setTextColor(token, body, color) {
+    if (color) {
+      token.dataset.color = color;
+    } else {
+      delete token.dataset.color;
+    }
+    const label = body.querySelector('.text-label');
+    if (!label) return;
+    if (color) label.style.color = color;
+    else label.style.removeProperty('color');
+  }
+
+  // Maps a swatch color to the matching pre-defined <marker> id in the field
+  // SVG's <defs> (see markup) so a colored arrow's head matches its shaft.
+  function markerIdForColor(color) {
+    if (!color) return 'arrowhead';
+    const key = color.replace('#', '').toLowerCase();
+    return document.getElementById('arrowhead-' + key) ? 'arrowhead-' + key : 'arrowhead';
+  }
+
+  function setArrowColor(line, color) {
+    if (color) {
+      line.dataset.color = color;
+      line.style.setProperty('--arrow-color', color);
+    } else {
+      delete line.dataset.color;
+      line.style.removeProperty('--arrow-color');
+    }
+    line.setAttribute('marker-end', `url(#${markerIdForColor(color)})`);
   }
 
   function attachRotate(token, body) {
@@ -755,6 +870,7 @@
       fontSize: t.dataset.fontSize != null ? parseFloat(t.dataset.fontSize) : null,
       number: t.dataset.number || null,
       highlight: t.dataset.highlight || null,
+      color: t.dataset.color || null,
       leftPct: parseFloat(t.style.left),
       topPct: parseFloat(t.style.top),
       rotation: t.dataset.rotation != null ? parseFloat(t.dataset.rotation) : null
@@ -763,7 +879,8 @@
       x1: parseFloat(line.getAttribute('x1')),
       y1: parseFloat(line.getAttribute('y1')),
       x2: parseFloat(line.getAttribute('x2')),
-      y2: parseFloat(line.getAttribute('y2'))
+      y2: parseFloat(line.getAttribute('y2')),
+      color: line.dataset.color || null
     }));
     return { tokens, arrows };
   }
@@ -782,15 +899,15 @@
     tokens.forEach(s => {
       addToken(s.type, s.team, {
         leftPct: s.leftPct, topPct: s.topPct, rotation: s.rotation,
-        text: s.text, fontSize: s.fontSize, number: s.number, highlight: s.highlight
+        text: s.text, fontSize: s.fontSize, number: s.number, highlight: s.highlight, color: s.color
       });
     });
     arrows.forEach(a => {
-      const line = createArrowLine(a.x1, a.y1, a.x2, a.y2);
+      const line = createArrowLine(a.x1, a.y1, a.x2, a.y2, a.color);
       fieldSvg.appendChild(line);
       attachArrowInteraction(line);
     });
-    updateCarEditToolbar();
+    updateSelectionToolbars();
   }
 
   const TEMPLATES_KEY = 'rlTacticsCustomTemplates';
@@ -808,107 +925,315 @@
   const DEFAULT_TEMPLATES = [
     {
       id: 'msz3zzv3', name: '2% - TRICK', groupId: 'msz4qmpz',
-      state: {
+      states: [{
         tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129, number: '1', highlight: '#ff5a5a' },
           { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51, number: '2', highlight: '#b26bff' },
           { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
-          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90, number: '3', highlight: '#ffd23f' },
           { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null },
+          { type: 'text', text: 'FAST', fontSize: 26, color: '#ff5a5a', leftPct: 34.8026, topPct: 29.3927, rotation: 41 },
+          { type: 'text', text: 'SLOWER', fontSize: 25, color: '#b26bff', leftPct: 35.9868, topPct: 69.2323, rotation: -36 },
+          { type: 'text', text: 'BLOCK RIGHT', fontSize: 18, color: '#ff5a5a', leftPct: 52.1711, topPct: 45.5056, rotation: 31 },
+          { type: 'text', text: 'HIT TOWARDS GOAL', fontSize: 13, color: '#b26bff', leftPct: 50.0658, topPct: 56.3065, rotation: 11 },
+          { type: 'text', text: 'HOVER HERE', fontSize: 18, color: '#ffd23f', leftPct: 12.9605, topPct: 44.2662, rotation: 0 },
+          { type: 'text', text: '2% MILK!!!', fontSize: 29, leftPct: 23.2237, topPct: 3.8954, rotation: 0 }
         ],
         arrows: [
-          { x1: 277.15555555555557, y1: 220.27019134172841, x2: 469.72222222222217, y2: 381.35048945167392 },
-          { x1: 274.73333333333335, y1: 582.39807957386165, x2: 468.51111111111106, y2: 422.52891152489315 },
-          { x1: 83.377777777777766, y1: 399.51744036632948, x2: 135.45555555555558, y2: 399.51744036632948 }
+          { x1: 277.1556, y1: 220.2702, x2: 469.7222, y2: 381.3505, color: '#ff5a5a' },
+          { x1: 83.3778, y1: 399.5174, x2: 135.4556, y2: 399.5174, color: '#ffd23f' },
+          { x1: 272.6776, y1: 581.5973, x2: 441.9145, y2: 461.1226, color: '#b26bff' },
+          { x1: 509.3224, y1: 438.175, x2: 804.7697, y2: 441.0434, color: '#b26bff' }
         ]
-      }
+      }]
     },
     {
       id: 'msz425ly', name: 'Double Fakey', groupId: 'msz4qmpz',
-      state: {
+      states: [{
         tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129, number: '1', highlight: '#ff5a5a' },
           { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51, number: '2', highlight: '#b26bff' },
           { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
-          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90, number: '3', highlight: '#ffd23f' },
           { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null },
+          { type: 'text', text: 'FASTER FAKE', fontSize: 22, color: '#ff5a5a', leftPct: 37.5658, topPct: 33.8193, rotation: 44 },
+          { type: 'text', text: 'FAST FAKE', fontSize: 24, color: '#b26bff', leftPct: 37.3026, topPct: 64.9827, rotation: -47 },
+          { type: 'text', text: 'BALL GOES HERE', fontSize: 12, color: '#ffd23f', leftPct: 34.0132, topPct: 46.9221, rotation: 0 },
+          { type: 'text', text: 'PASS TO TEAMATE', fontSize: 12, color: '#ffd23f', leftPct: 23.75, topPct: 57.546, rotation: 34 },
+          { type: 'text', text: 'DOUBLE FAKEY', fontSize: 26, color: '#ffffff', leftPct: 25.1974, topPct: 3.5413, rotation: 0 }
         ],
         arrows: [
-          { x1: 274.73333333333335, y1: 217.84793121977432, x2: 470.93333333333339, y2: 398.30631030535244 },
-          { x1: 473.35555555555561, y1: 406.78422073219167, x2: 479.41111111111104, y2: 716.83351634231246 },
-          { x1: 274.73333333333335, y1: 583.60920963483852, x2: 434.6, y2: 415.2621311590309 },
-          { x1: 434.6, y1: 415.2621311590309, x2: 480.62222222222226, y2: 84.623624512300538 },
-          { x1: 80.955555555555549, y1: 399.51744036632948, x2: 102.75555555555556, y2: 399.51744036632948 }
+          { x1: 274.7333, y1: 217.8479, x2: 470.9333, y2: 398.3063, color: '#ff5a5a' },
+          { x1: 473.3556, y1: 406.7842, x2: 479.4111, y2: 716.8335, color: '#ff5a5a' },
+          { x1: 274.7333, y1: 583.6092, x2: 434.6, y2: 415.2621, color: '#b26bff' },
+          { x1: 434.6, y1: 415.2621, x2: 480.6222, y2: 84.6236, color: '#b26bff' },
+          { x1: 80.9556, y1: 399.5174, x2: 102.7556, y2: 399.5174, color: '#ffd23f' },
+          { x1: 466.2961, y1: 403.7536, x2: 285.5855, y2: 402.3194, color: '#ffd23f' },
+          { x1: 195.2303, y1: 422.3985, x2: 264.0724, y2: 465.4252, color: '#ffd23f' }
         ]
-      }
+      }]
     },
     {
       id: 'msz46gxh', name: 'Spanish', groupId: 'msz4qmpz',
-      state: {
+      states: [{
         tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-          { type: 'car', team: 'orange', leftPct: 54.2222, topPct: 53.529, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129, number: '1', highlight: '#ff5a5a' },
+          { type: 'car', team: 'orange', leftPct: 55.0658, topPct: 53.8276, rotation: 309 },
+          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94, number: '2', highlight: '#b26bff' },
           { type: 'car', team: 'orange', leftPct: 64.2222, topPct: 49.4919, rotation: 274 },
-          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
-          { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90, number: '3', highlight: '#ffd23f' },
+          { type: 'car', team: 'orange', leftPct: 88.4868, topPct: 85.3451, rotation: 192 },
+          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null },
+          { type: 'text', text: 'FAST FAKE', fontSize: 14, color: '#ff5a5a', leftPct: 34.1447, topPct: 29.7469, rotation: 40 },
+          { type: 'text', text: 'DEMO', fontSize: 23, color: '#ff5a5a', leftPct: 57.0395, topPct: 43.735, rotation: 22 },
+          { type: 'text', text: 'LOOK FOR PASS', fontSize: 19, color: '#b26bff', leftPct: 50.4605, topPct: 24.612, rotation: -15 },
+          { type: 'text', text: 'PASS BALL->', fontSize: 19, color: '#ffd23f', leftPct: 33.6184, topPct: 48.1616, rotation: -29 },
+          { type: 'text', text: 'SPANISH - KICKOFF', fontSize: 29, leftPct: 30.1974, topPct: 3.7184, rotation: 0 }
         ],
         arrows: [
-          { x1: 275.94444444444446, y1: 216.63680115879728, x2: 458.82222222222219, y2: 364.39466859799546 },
-          { x1: 467.29999999999995, y1: 361.97240847604144, x2: 524.22222222222229, y2: 359.55014835408741 },
-          { x1: 529.06666666666661, y1: 360.76127841506434, x2: 617.47777777777776, y2: 393.46179006144428 },
-          { x1: 154.83333333333331, y1: 376.50596920776582, x2: 292.9, y2: 303.8381655491437 },
-          { x1: 298.95555555555552, y1: 302.62703548816671, x2: 461.24444444444441, y2: 240.859402378338 },
-          { x1: 78.533333333333331, y1: 400.72857042730647, x2: 239.61111111111114, y2: 394.67292012242132 }
+          { x1: 275.9444, y1: 216.6368, x2: 458.8222, y2: 364.3947, color: '#ff5a5a' },
+          { x1: 467.3, y1: 361.9724, x2: 524.2222, y2: 359.5501, color: '#ff5a5a' },
+          { x1: 529.0667, y1: 360.7613, x2: 617.4778, y2: 393.4618, color: '#ff5a5a' },
+          { x1: 154.8333, y1: 376.506, x2: 292.9, y2: 303.8382, color: '#b26bff' },
+          { x1: 298.9556, y1: 302.627, x2: 461.2444, y2: 240.8594, color: '#b26bff' },
+          { x1: 78.5333, y1: 400.7286, x2: 239.6111, y2: 394.6729, color: '#ffd23f' },
+          { x1: 474.9013, y1: 400.8852, x2: 416.0987, y2: 395.1483 },
+          { x1: 466.2961, y1: 238.818, x2: 589.6382, y2: 207.265, color: '#b26bff' }
         ]
-      }
+      }]
     },
     {
       id: 'msz52w2k', name: '1A', groupId: 'msz4s4k7',
-      state: {
-        tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-          { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
-          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
-          { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
-        ],
-        arrows: [
-          { x1: 272.91666666666669, y1: 220.27019134172841, x2: 470.32777777777778, y2: 378.9282293297199 },
-          { x1: 162.70555555555555, y1: 376.50596920776582, x2: 358.90555555555557, y2: 384.98387963460505 },
-          { x1: 51.283333333333331, y1: 375.29483914678877, x2: 60.972222222222243, y2: 124.59091652454268 }
-        ]
-      }
+      states: [
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 220.2702, x2: 470.3278, y2: 378.9282 },
+            { x1: 162.7056, y1: 376.506, x2: 358.9056, y2: 384.9839 },
+            { x1: 51.2833, y1: 375.2948, x2: 60.9722, y2: 124.5909 }
+          ]
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 220.2702, x2: 470.3278, y2: 378.9282 },
+            { x1: 51.2833, y1: 375.2948, x2: 60.9722, y2: 124.5909 },
+            { x1: 172.2829, y1: 425.267, x2: 360.1645, y2: 413.7932 }
+          ]
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 579.7298, x2: 470.3278, y2: 421.0718 },
+            { x1: 162.7056, y1: 423.494, x2: 358.9056, y2: 415.0161 },
+            { x1: 51.2833, y1: 424.7052, x2: 60.9722, y2: 675.4091 }
+          ]
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 579.7298, x2: 470.3278, y2: 421.0718 },
+            { x1: 51.2833, y1: 424.7052, x2: 60.9722, y2: 675.4091 },
+            { x1: 172.2829, y1: 374.733, x2: 360.1645, y2: 386.2068 }
+          ]
+        }
+      ]
     },
     {
       id: 'msz53i3w', name: '2A', groupId: 'msz4s4k7',
-      state: {
-        tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-          { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
-        ],
-        arrows: [
-          { x1: 272.91666666666669, y1: 219.05906128075134, x2: 471.53888888888889, y2: 374.08370908581173 },
-          { x1: 126.37222222222223, y1: 352.28336798822517, x2: 92.461111111111109, y2: 107.6350956708642 },
-          { x1: 156.65, y1: 423.74004158587013, x2: 442.47222222222217, y2: 410.41761091512274 }
-        ]
-      }
+      states: [
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 219.0591, x2: 471.5389, y2: 374.0837 },
+            { x1: 126.3722, y1: 352.2834, x2: 92.4611, y2: 107.6351 },
+            { x1: 156.65, y1: 423.74, x2: 442.4722, y2: 410.4176 }
+          ]
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 272.9167, y1: 580.9409, x2: 471.5389, y2: 425.9163 },
+            { x1: 126.3722, y1: 447.7166, x2: 92.4611, y2: 692.3649 },
+            { x1: 156.65, y1: 376.26, x2: 442.4722, y2: 389.5824 }
+          ]
+        }
+      ]
     },
     {
       id: 'msz55kyr', name: '3A', groupId: 'msz4s4k7',
-      state: {
+      states: [
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 274.1278, y1: 221.4813, x2: 470.3278, y2: 374.0837 },
+            { x1: 85.1944, y1: 399.5174, x2: 264.4389, y2: 399.5174 },
+            { x1: 228.1056, y1: 619.9431, x2: 98.5167, y2: 720.4669 }
+          ]
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: [
+            { x1: 274.1278, y1: 578.5187, x2: 470.3278, y2: 425.9163 },
+            { x1: 85.1944, y1: 400.4826, x2: 264.4389, y2: 400.4826 },
+            { x1: 228.1056, y1: 180.0569, x2: 98.5167, y2: 79.5331 }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'msz4yt91', name: '1', groupId: 'msz57903',
+      states: [
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: -86 },
+            { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
+            { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        }
+      ]
+    },
+    {
+      id: 'msz3q46x', name: '2', groupId: 'msz57903',
+      states: [
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        },
+        {
+          tokens: [
+            { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
+            { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
+            { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
+            { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
+            { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
+          ],
+          arrows: []
+        }
+      ]
+    },
+    {
+      id: 'msz2wpzl', name: '3', groupId: 'msz57903',
+      states: [{
         tokens: [
           { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
           { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
@@ -918,54 +1243,8 @@
           { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
           { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
         ],
-        arrows: [
-          { x1: 274.12777777777779, y1: 221.48132140270542, x2: 470.32777777777778, y2: 374.08370908581173 },
-          { x1: 85.194444444444457, y1: 399.51744036632948, x2: 264.43888888888893, y2: 399.51744036632948 },
-          { x1: 228.10555555555555, y1: 619.94311146414964, x2: 98.516666666666652, y2: 720.46690652524364 }
-        ]
-      }
-    },
-    {
-      id: 'msz4yt91', name: '1', groupId: 'msz57903',
-      state: {
-        tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-          { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
-          { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
-          { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
-        ],
         arrows: []
-      }
-    },
-    {
-      id: 'msz3q46x', name: '2', groupId: 'msz57903',
-      state: {
-        tokens: [
-          { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-          { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 46.9136, rotation: 94 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 53.0864, rotation: 274 },
-          { type: 'car', team: 'blue', leftPct: 15.5963, topPct: 53.0864, rotation: 86 },
-          { type: 'car', team: 'orange', leftPct: 84.4037, topPct: 46.9136, rotation: 266 },
-          { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
-        ],
-        arrows: []
-      }
-    },
-    {
-      id: 'msz2wpzl', name: '3', groupId: 'msz57903',
-      state: [
-        { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 25.3086, rotation: 129 },
-        { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 74.6914, rotation: 309 },
-        { type: 'car', team: 'blue', leftPct: 27.0642, topPct: 74.6914, rotation: 51 },
-        { type: 'car', team: 'orange', leftPct: 72.9358, topPct: 25.3086, rotation: 231 },
-        { type: 'car', team: 'blue', leftPct: 8.7156, topPct: 50, rotation: 90 },
-        { type: 'car', team: 'orange', leftPct: 91.2844, topPct: 50, rotation: 270 },
-        { type: 'ball', team: null, leftPct: 50, topPct: 50, rotation: null }
-      ]
+      }]
     }
   ];
 
@@ -979,9 +1258,23 @@
     localStorage.setItem(DEFAULTS_SEEDED_KEY, '1');
   }
 
+  // Older saved/exported templates carry a single `state`. Newer ones carry a
+  // `states` array (variants). Migrate in place so every template the app
+  // touches uses the newer shape.
+  function migrateTemplate(t) {
+    if (!Array.isArray(t.states)) {
+      t.states = [t.state];
+      delete t.state;
+    }
+    delete t.activeIndex;
+    return t;
+  }
+
   function loadCustomTemplates() {
     try {
-      return JSON.parse(localStorage.getItem(TEMPLATES_KEY)) || [];
+      const list = (JSON.parse(localStorage.getItem(TEMPLATES_KEY)) || []).map(migrateTemplate);
+      saveCustomTemplates(list);
+      return list;
     } catch (e) {
       return [];
     }
@@ -1038,11 +1331,44 @@
     renderCustomTemplates();
   }
 
+  // Persists a mutation (fn) made to a live template object back to storage,
+  // keyed by id so we're never writing a stale copy.
+  function updateTemplate(templateId, fn) {
+    const templates = loadCustomTemplates();
+    const t = templates.find(x => x.id === templateId);
+    if (!t) return null;
+    fn(t);
+    saveCustomTemplates(templates);
+    return t;
+  }
+
   function makeTemplateButton(tpl) {
     const btn = document.createElement('button');
     btn.className = 'kickoff-btn template-btn';
     btn.draggable = true;
-    btn.innerHTML = `<span class="dot"></span>${escapeHtml(tpl.name)}<span class="delete-x" title="Delete template">&times;</span>`;
+
+    const hasVariants = tpl.states.length > 1;
+    // The variant this button currently "points at": if it's the live template,
+    // that's wherever the cycle landed; otherwise clicking it starts the cycle
+    // over at the first variant, so show that as the preview.
+    const shownIndex = activeTemplateId === tpl.id ? activeVariantIndex : 0;
+    // Variant labels reuse the template's own name as the root, swapping out a
+    // trailing letter if it has one ("1A" -> root "1") so "1A"/"1B"/"1C"/"1D"
+    // read as one family instead of a raw index. Only strip when that letter
+    // follows a digit (RL's "1A/2A/3A" convention) — otherwise a name that just
+    // happens to end in a capital, like "2% - TRICK", would lose its last letter.
+    const letterRoot = /\d[A-Z]$/.test(tpl.name) ? tpl.name.slice(0, -1) : tpl.name;
+    const variantLetters = tpl.states.map((_, i) => letterRoot + String.fromCharCode(65 + i));
+
+    btn.innerHTML = `
+      <span class="dot"></span>${hasVariants
+        ? `<span class="variant-letters">${variantLetters.map((label, i) =>
+            `<span class="variant-letter${i === shownIndex ? ' active' : ''}" data-idx="${i}">${escapeHtml(label)}</span>`
+          ).join('')}</span>`
+        : escapeHtml(tpl.name)}
+      <span class="variant-add" title="Save current board as a new version of this template">+</span>
+      <span class="delete-x" title="${hasVariants ? 'Delete this version' : 'Delete template'}">&times;</span>
+    `;
 
     btn.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('application/x-template-id', tpl.id);
@@ -1068,15 +1394,59 @@
     });
 
     btn.addEventListener('click', (e) => {
+      if (e.target.classList.contains('variant-letter')) {
+        e.stopPropagation();
+        const idx = parseInt(e.target.dataset.idx, 10);
+        activeTemplateId = tpl.id;
+        activeVariantIndex = idx;
+        applyBoardState(tpl.states[idx]);
+        renderCustomTemplates();
+        return;
+      }
+
+      if (e.target.classList.contains('variant-add')) {
+        e.stopPropagation();
+        const updated = updateTemplate(tpl.id, (t) => {
+          t.states.push(getBoardState());
+        });
+        if (updated) {
+          activeTemplateId = tpl.id;
+          activeVariantIndex = updated.states.length - 1;
+        }
+        renderCustomTemplates();
+        return;
+      }
+
       if (e.target.classList.contains('delete-x')) {
         e.stopPropagation();
-        if (confirm(`Delete template "${tpl.name}"?`)) {
+        if (tpl.states.length > 1) {
+          const doomedIndex = activeTemplateId === tpl.id ? activeVariantIndex : 0;
+          if (confirm(`Delete this version (${doomedIndex + 1}/${tpl.states.length}) of "${tpl.name}"?`)) {
+            const updated = updateTemplate(tpl.id, (t) => { t.states.splice(doomedIndex, 1); });
+            if (activeTemplateId === tpl.id) {
+              activeVariantIndex = updated ? Math.min(activeVariantIndex, updated.states.length - 1) : 0;
+            }
+            renderCustomTemplates();
+          }
+        } else if (confirm(`Delete template "${tpl.name}"?`)) {
           saveCustomTemplates(loadCustomTemplates().filter(t => t.id !== tpl.id));
+          if (activeTemplateId === tpl.id) activeTemplateId = null;
           renderCustomTemplates();
         }
         return;
       }
-      applyBoardState(tpl.state);
+
+      // Clicking the button body itself cycles: switching to a different
+      // template starts at variant 1, clicking the same template again
+      // advances to the next one (wrapping back to 1 after the last).
+      if (activeTemplateId === tpl.id) {
+        activeVariantIndex = (activeVariantIndex + 1) % tpl.states.length;
+      } else {
+        activeTemplateId = tpl.id;
+        activeVariantIndex = 0;
+      }
+      applyBoardState(tpl.states[activeVariantIndex]);
+      renderCustomTemplates();
     });
 
     return btn;
@@ -1237,7 +1607,7 @@
     if (selectedToken) selectedToken.classList.remove('selected');
     selectedToken = token;
     token.classList.add('selected');
-    updateCarEditToolbar();
+    updateSelectionToolbars();
   }
 
   function selectArrow(line) {
@@ -1245,7 +1615,7 @@
     if (selectedArrow) selectedArrow.classList.remove('selected');
     selectedArrow = line;
     line.classList.add('selected');
-    updateCarEditToolbar();
+    updateSelectionToolbars();
   }
 
   // --- Arrow drawing ---
@@ -1263,14 +1633,14 @@
     return pctToField(leftPct, topPct);
   }
 
-  function createArrowLine(x1, y1, x2, y2) {
+  function createArrowLine(x1, y1, x2, y2, color) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('x1', x1);
     line.setAttribute('y1', y1);
     line.setAttribute('x2', x2);
     line.setAttribute('y2', y2);
     line.setAttribute('class', 'tactic-arrow');
-    line.setAttribute('marker-end', 'url(#arrowhead)');
+    setArrowColor(line, color || null);
     return line;
   }
 
@@ -1314,7 +1684,7 @@
         selectedArrow.classList.remove('selected');
         selectedArrow = null;
       }
-      updateCarEditToolbar();
+      updateSelectionToolbars();
     }
   });
 
@@ -1354,7 +1724,7 @@
     if (['1', '2', '3'].includes(e.key) && selectedToken && selectedToken.dataset.type === 'car') {
       const body = selectedToken.querySelector('.token-body');
       setCarNumber(selectedToken, body, selectedToken.dataset.number === e.key ? null : e.key);
-      updateCarEditToolbar();
+      updateSelectionToolbars();
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -1365,13 +1735,34 @@
         selectedArrow.remove();
         selectedArrow = null;
       }
-      updateCarEditToolbar();
+      updateSelectionToolbars();
     }
   });
 
   document.getElementById('addBlue').addEventListener('click', () => addToken('car', 'blue'));
   document.getElementById('addOrange').addEventListener('click', () => addToken('car', 'orange'));
   document.getElementById('addBall').addEventListener('click', () => addToken('ball'));
+
+  // Mirrors every token (both teams) and every drawn arrow across the pitch's
+  // horizontal midline. Car facing angles are reflected too, so a car pointing
+  // north/south flips accordingly while east/west-facing cars stay put.
+  document.getElementById('flipVertical').addEventListener('click', () => {
+    document.querySelectorAll('.token').forEach(t => {
+      const topPct = parseFloat(t.style.top);
+      if (!isNaN(topPct)) t.style.top = (100 - topPct) + '%';
+
+      if (t.dataset.type === 'car' && t.dataset.rotation != null) {
+        const rot = parseFloat(t.dataset.rotation);
+        const flipped = ((180 - rot) % 360 + 360) % 360;
+        setRotation(t, t.querySelector('.token-body'), flipped);
+      }
+    });
+
+    document.querySelectorAll('.tactic-arrow').forEach(line => {
+      line.setAttribute('y1', 800 - parseFloat(line.getAttribute('y1')));
+      line.setAttribute('y2', 800 - parseFloat(line.getAttribute('y2')));
+    });
+  });
   document.getElementById('addText').addEventListener('click', () => {
     const text = prompt('Text to add:', 'Label');
     if (!text) return;
@@ -1382,7 +1773,7 @@
     const name = prompt('Name this template:');
     if (!name) return;
     const templates = loadCustomTemplates();
-    templates.push({ id: Date.now().toString(36), name, groupId: null, state: getBoardState() });
+    templates.push({ id: Date.now().toString(36), name, groupId: null, states: [getBoardState()] });
     saveCustomTemplates(templates);
     renderCustomTemplates();
   });
@@ -1486,21 +1877,30 @@
     document.querySelectorAll('.tactic-arrow').forEach(a => a.remove());
     selectedToken = null;
     selectedArrow = null;
-    updateCarEditToolbar();
+    updateSelectionToolbars();
   });
 
   // --- Selected-car panel: number badge + highlight color ---
 
   const carEditToolbar = document.getElementById('carEditToolbar');
+  const colorEditToolbar = document.getElementById('colorEditToolbar');
 
-  function updateCarEditToolbar() {
+  function updateSelectionToolbars() {
     const isCar = !!(selectedToken && selectedToken.dataset.type === 'car');
     carEditToolbar.classList.toggle('visible', isCar);
-    if (!isCar) return;
-    const currentNum = selectedToken.dataset.number || '';
-    const currentColor = (selectedToken.dataset.highlight || '').toLowerCase();
-    document.querySelectorAll('.num-btn').forEach(b => b.classList.toggle('active', b.dataset.num === currentNum));
-    document.querySelectorAll('.highlight-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === currentColor));
+    if (isCar) {
+      const currentNum = selectedToken.dataset.number || '';
+      const currentColor = (selectedToken.dataset.highlight || '').toLowerCase();
+      document.querySelectorAll('.num-btn').forEach(b => b.classList.toggle('active', b.dataset.num === currentNum));
+      document.querySelectorAll('.highlight-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === currentColor));
+    }
+
+    const isText = !!(selectedToken && selectedToken.dataset.type === 'text');
+    colorEditToolbar.classList.toggle('visible', isText || !!selectedArrow);
+    if (isText || selectedArrow) {
+      const currentColor = ((isText ? selectedToken.dataset.color : selectedArrow.dataset.color) || '').toLowerCase();
+      document.querySelectorAll('#colorEditToolbar .color-swatch').forEach(b => b.classList.toggle('active', b.dataset.color.toLowerCase() === currentColor));
+    }
   }
 
   document.querySelectorAll('.num-btn').forEach(btn => {
@@ -1509,14 +1909,14 @@
       const body = selectedToken.querySelector('.token-body');
       const isActive = selectedToken.dataset.number === btn.dataset.num;
       setCarNumber(selectedToken, body, isActive ? null : btn.dataset.num);
-      updateCarEditToolbar();
+      updateSelectionToolbars();
     });
   });
 
   document.getElementById('clearNumber').addEventListener('click', () => {
     if (!selectedToken || selectedToken.dataset.type !== 'car') return;
     setCarNumber(selectedToken, selectedToken.querySelector('.token-body'), null);
-    updateCarEditToolbar();
+    updateSelectionToolbars();
   });
 
   document.querySelectorAll('.highlight-swatch').forEach(btn => {
@@ -1525,14 +1925,42 @@
       const body = selectedToken.querySelector('.token-body');
       const isActive = (selectedToken.dataset.highlight || '').toLowerCase() === btn.dataset.color.toLowerCase();
       setCarHighlight(selectedToken, body, isActive ? null : btn.dataset.color);
-      updateCarEditToolbar();
+      updateSelectionToolbars();
     });
   });
 
   document.getElementById('clearHighlight').addEventListener('click', () => {
     if (!selectedToken || selectedToken.dataset.type !== 'car') return;
     setCarHighlight(selectedToken, selectedToken.querySelector('.token-body'), null);
-    updateCarEditToolbar();
+    updateSelectionToolbars();
+  });
+
+  // --- Selected-text / selected-arrow panel: color ---
+
+  document.querySelectorAll('#colorEditToolbar .color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isText = !!(selectedToken && selectedToken.dataset.type === 'text');
+      if (!isText && !selectedArrow) return;
+      const current = (isText ? selectedToken.dataset.color : selectedArrow.dataset.color) || '';
+      const isActive = current.toLowerCase() === btn.dataset.color.toLowerCase();
+      const color = isActive ? null : btn.dataset.color;
+      if (isText) {
+        setTextColor(selectedToken, selectedToken.querySelector('.token-body'), color);
+      } else {
+        setArrowColor(selectedArrow, color);
+      }
+      updateSelectionToolbars();
+    });
+  });
+
+  document.getElementById('resetColor').addEventListener('click', () => {
+    const isText = !!(selectedToken && selectedToken.dataset.type === 'text');
+    if (isText) {
+      setTextColor(selectedToken, selectedToken.querySelector('.token-body'), null);
+    } else if (selectedArrow) {
+      setArrowColor(selectedArrow, null);
+    }
+    updateSelectionToolbars();
   });
 </script>
 
