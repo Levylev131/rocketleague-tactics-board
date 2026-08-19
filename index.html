@@ -160,6 +160,9 @@
   #clearAll { border-color: rgba(255,90,90,0.3); color: #ff9a9a; }
   #clearAll:hover { background: rgba(255,90,90,0.12); }
 
+  #resetTemplates { border-color: rgba(255,90,90,0.3); color: #ff9a9a; }
+  #resetTemplates:hover { background: rgba(255,90,90,0.12); }
+
   #saveTemplate { border-color: rgba(77,224,196,0.35); color: var(--accent); }
   #saveTemplate:hover { background: rgba(77,224,196,0.12); }
 
@@ -520,6 +523,7 @@
   <button id="exportTemplates"><span class="dot"></span>Export Templates</button>
   <button id="importTemplates"><span class="dot"></span>Import Templates</button>
   <input type="file" id="importFileInput" accept="application/json" style="display:none">
+  <button id="resetTemplates">Reset Templates to Default</button>
   <button id="clearAll">Clear All</button>
 </div>
 
@@ -1867,6 +1871,13 @@
     };
     reader.readAsText(file);
     importFileInput.value = '';
+  });
+
+  document.getElementById('resetTemplates').addEventListener('click', () => {
+    if (!confirm('Reset "My Templates" back to the built-in defaults? This permanently deletes every custom template and group you\'ve saved.')) return;
+    saveGroups(DEFAULT_GROUPS);
+    saveCustomTemplates(DEFAULT_TEMPLATES);
+    renderCustomTemplates();
   });
 
   seedDefaultTemplatesIfNeeded();
